@@ -1,29 +1,72 @@
-# Create T3 App
+# Dark Phoenix Frontend (Next.js 15)
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+The web dashboard and client application for **Dark Phoenix**, an automated AI-powered video clipping platform.
 
-## What's next? How do I make an app with this?
+---
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+## 1. Overview & Architecture
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+The frontend serves as the primary user interface for Dark Phoenix, allowing users and reviewers to submit YouTube URLs or upload video files, monitor background clipping pipelines, and preview/download generated vertical clips.
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+### Tech Stack
+- **Framework**: Next.js 15 (App Router with TurboPack)
+- **UI & Components**: React 19, Tailwind CSS v4, Radix UI primitives, Lucide Icons, Sonner notifications
+- **Authentication**: Auth.js (`next-auth` v5 beta) with credentials login and Prisma adapter
+- **Database**: Prisma Client v6 connected to PostgreSQL (Supabase)
+- **Object Storage**: AWS S3 SDK v3 (`@aws-sdk/client-s3`) supporting custom S3 API gateways (`AWS_ENDPOINT_URL_S3`)
+- **Queue Client**: Inngest SDK v3 (`src/inngest/`) dispatching background events to the clipping pipeline
 
-## Learn More
+---
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+## 2. Key Features
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+- **Server-Side YouTube Ingestion**: Dashboard input for YouTube URLs (`https://www.youtube.com/watch?v=YRvf00NooN8`). A Next.js server action validates the URL, creates an `UploadedFile` record, and triggers Inngest. Video downloading and processing occur entirely server-side.
+- **Direct File Upload**: Client-side signed S3 PUT URL generation for direct video file uploads.
+- **Reviewer Test Account**: Pre-seeded database credentials and credits (`User.credits`), bypassing credit-card entry and Stripe checkout for review evaluation.
+- **Vertical Clip Player**: Responsive 9:16 vertical video player rendering clips from signed S3 GET URLs with one-click download.
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+---
 
-## How do I deploy this?
+## 3. Directory Layout
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+```
+ai-podcast-clipper-frontend/
+├── prisma/
+│   └── schema.prisma             # PostgreSQL schema (User, UploadedFile, Clip, Account)
+├── src/
+│   ├── actions/
+│   │   ├── generation.ts         # Job creation, YouTube URL submission, and Inngest trigger
+│   │   ├── s3.ts                 # S3 signed PUT and GET URL generation
+│   │   └── stripe.ts             # Credit purchasing and Stripe session management
+│   ├── app/
+│   │   ├── api/inngest/route.ts  # Inngest webhook route
+│   │   ├── dashboard/            # User dashboard (clip display & submission tabs)
+│   │   └── login/                # Authentication page with reviewer login helper
+│   ├── components/
+│   │   ├── clip-display.tsx      # 9:16 vertical clip video player
+│   │   └── dashboard-client.tsx  # Dashboard interface with YouTube URL and file upload tabs
+│   ├── env.js                    # Type-safe environment variable schema
+│   └── inngest/
+│       ├── client.ts             # Inngest client configuration
+│       └── functions.ts          # Video processing workflow function
+├── next.config.js                # Next.js configuration
+└── package.json                  # Scripts and dependencies
+```
+
+---
+
+## 4. Local Development Runbook
+
+```bash
+# Install dependencies
+npm install
+
+# Push Prisma schema to PostgreSQL
+npm run db:push
+
+# Start development server on port 3001
+npm run dev
+
+# Start local Inngest Dev Server (optional, for local queue testing)
+npm run inngest-dev
+```

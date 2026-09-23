@@ -18,10 +18,17 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  const user = await db.user.findUniqueOrThrow({
+  // Session is valid but the user row may be missing (e.g. account deleted
+  // while a JWT session cookie was still issued). Treat it like a signed-out
+  // visitor instead of crashing the dashboard with a Prisma P2025.
+  const user = await db.user.findUnique({
     where: { id: session.user.id },
     select: { credits: true, email: true },
   });
+
+  if (!user) {
+    redirect("/login");
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
