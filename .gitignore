@@ -43,9 +43,11 @@ ai-podcast-clipper-frontend/next-env.d.ts
 
 # Backend (evo2-backend - Python/Modal)
 ai-podcast-clipper-backend/__pycache__/
-ai-podcast-clipper-backend/*.pyc
-ai-podcast-clipper-backend/*.pyo
-ai-podcast-clipper-backend/*.pyd
+ai-podcast-clipper-backend-huggingface/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
 ai-podcast-clipper-backend/.venv/
 ai-podcast-clipper-backend/venv/
 ai-podcast-clipper-backend/env/
@@ -53,3 +55,14 @@ ai-podcast-clipper-backend/*.env
 ai-podcast-clipper-backend/.env
 ai-podcast-clipper-backend/.modal*
 ai-podcast-clipper-backend/brca1_analysis_plot.png
+
+# Local specifications and resources
+files/
+.vercel
+.env*
+delivery_submission/
+test_*.py
+check_*.py
+trigger_*.py
+download_*.py
+opencode.json

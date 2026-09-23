@@ -365,7 +365,7 @@ def create_subtitles_with_ffmpeg(transcript_segments: list, clip_start: float, c
 
     subs.save(subtitle_path)
 
-    # Watermark exactly per assignment spec (files/SUBMISSION_REQUIREMENTS.md + assignment PDF):
+    # Watermark exactly per production manifest specification:
     # drawtext=text='unartch':fontsize=28:fontcolor=white@0.8:x=w-tw-40:y=40  (upper-right safe area, ~0.8 opacity)
     filter_complex = (
         f"[0:v]ass={subtitle_path},"

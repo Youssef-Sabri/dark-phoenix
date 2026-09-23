@@ -19,7 +19,7 @@ This Space hosts the production AI clipping backend for Dark Phoenix, optimized 
 - **Google Gemini 3.1 Flash Lite**: Intelligent highlight selection and structured viral moment extraction.
 - **TalkNet ASD on CPU**: Active-speaker detection and continuous face tracking adapted for PyTorch CPU execution.
 - **FFmpeg 9:16 Vertical Reframing**: Dynamic face tracking framing (1080×1920) centered on the active speaker.
-- **Burned-in Anton Subtitles & `unartch` Watermark**: Styled ASS captions using the Anton font plus the rubric-mandated burned-in `unartch` text watermark (ffmpeg `drawtext=text='unartch':fontsize=28:fontcolor=white@0.8:x=w-tw-40:y=40`, upper-right safe area) baked directly into the video bytes.
+- **Burned-in Anton Subtitles & `unartch` Watermark**: Styled ASS captions using the Anton font plus the burned-in `unartch` text watermark (ffmpeg `drawtext=text='unartch':fontsize=28:fontcolor=white@0.8:x=w-tw-40:y=40`, upper-right safe area) baked directly into the video bytes.
 - **S3 / Supabase Storage Integration**: Direct download and multipart upload via custom S3 API gateways.
 - **ZeroGPU Probe**: Built-in startup probe satisfying Hugging Face ZeroGPU supervisor checks.
 
