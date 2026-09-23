@@ -1,0 +1,47 @@
+{
+  "source_video": {
+    "url": "https://www.youtube.com/watch?v=YRvf00NooN8",
+    "video_id": "YRvf00NooN8",
+    "s3_source_key": "uploads/YRvf00NooN8/original.mp4"
+  },
+  "watermark": {
+    "text": "unartch",
+    "type": "burned-in",
+    "filter": "drawtext=text='unartch':fontsize=28:fontcolor=white@0.8:x=w-tw-40:y=40"
+  },
+  "clips": [
+    {
+      "clip_id": "clip_01",
+      "filename": "dark-phoenix_YRvf00NooN8_clip_01_unartch.mp4",
+      "start_time": "00:00:15.000",
+      "end_time": "00:01:00.000",
+      "duration_seconds": 45.0,
+      "s3_key": "uploads/YRvf00NooN8/clip_0.mp4",
+      "watermark_present": true,
+      "captions_present": true,
+      "known_issues": "None"
+    },
+    {
+      "clip_id": "clip_02",
+      "filename": "dark-phoenix_YRvf00NooN8_clip_02_unartch.mp4",
+      "start_time": "00:02:44.540",
+      "end_time": "00:03:37.150",
+      "duration_seconds": 52.61,
+      "s3_key": "uploads/YRvf00NooN8/clip_1.mp4",
+      "watermark_present": true,
+      "captions_present": true,
+      "known_issues": "None"
+    },
+    {
+      "clip_id": "clip_03",
+      "filename": "dark-phoenix_YRvf00NooN8_clip_03_unartch.mp4",
+      "start_time": "00:05:06.850",
+      "end_time": "00:05:46.580",
+      "duration_seconds": 39.73,
+      "s3_key": "uploads/YRvf00NooN8/clip_2.mp4",
+      "watermark_present": true,
+      "captions_present": true,
+      "known_issues": "None"
+    }
+  ]
+}
