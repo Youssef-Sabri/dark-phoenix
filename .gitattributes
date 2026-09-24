@@ -1,0 +1,3 @@
+# Keep the delivery manifest byte-identical (LF) on every checkout platform so
+# its SHA-256 matches the S3 and Google Drive distribution copies exactly.
+clips_manifest.json text eol=lf

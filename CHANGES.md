@@ -66,12 +66,14 @@ This document details the architecture, code modifications, environment configur
 
 ---
 
-## 3. Key Technical Enhancements & Architecture
+## 3. Changes Differing From the Upstream Method
+
+The canonical Modal backend (`ai-podcast-clipper-backend/`) is preserved byte-for-byte from upstream `main` (`5a40684`). The deviations below live in the Hugging Face backend, the ingestion tooling, the deployment, and the documentation — never inside the canonical Modal code.
 
 ### 1. Burned-in `unartch` Watermark & Logo Overlay Variant
-- **HF live backend** (the currently deployed production backend) burns the permanent **`unartch` text watermark** directly into the MP4 video stream via ffmpeg `drawtext` matching the production manifest specification:
+- The **HF live backend** (the deployed production backend) burns the permanent **`unartch` text watermark** directly into the MP4 video stream via FFmpeg `drawtext`, matching the production manifest specification:
   `drawtext=text='unartch':fontsize=28:fontcolor=white@0.8:x=w-tw-40:y=40` (upper-right safe area, ~0.8 opacity, text ≈6–10% of video width).
-- **Canonical Modal backend** additionally overlays the authentic LunarTech logo (`assets/lunartech-logo.png`) at opacity 0.78:
+- The **canonical Modal backend** additionally overlays the authentic LunarTech logo (`assets/lunartech-logo.png`) at opacity 0.78:
 ```python
 filter_complex = (
     f"[0:v]ass={subtitle_path}[subtitled];"
@@ -82,11 +84,11 @@ filter_complex = (
 ```
 
 ### 2. Anton Font for Styled Subtitles
-- Downloaded and cached in system font directory (`/usr/share/fonts/truetype/custom/Anton-Regular.ttf`).
+- Downloaded and cached in the system font directory (`/usr/share/fonts/truetype/custom/Anton-Regular.ttf`).
 - Styled with white text, black outline (width 3), bottom-center alignment via `pysubs2`.
 
 ### 3. Server-Side S3 Storage Gateway (`AWS_ENDPOINT_URL_S3`)
-Both backend and frontend support custom S3 endpoint URLs:
+Both backends and the frontend support custom S3 endpoint URLs:
 ```python
 def get_s3_client():
     s3_endpoint = os.environ.get("AWS_ENDPOINT_URL_S3")
@@ -100,7 +102,7 @@ def get_s3_client():
 ```
 
 ### 4. PyTorch 2.6 Weights Unpickler Compatibility
-Safely loads WhisperX and pyannote models when running modern PyTorch runtimes:
+Safely unpickles WhisperX and pyannote models on modern PyTorch runtimes:
 ```python
 _orig_load = torch.load
 def _compat_load(*args, **kwargs):
@@ -112,74 +114,50 @@ torch.serialization.load = _compat_load
 
 ### 5. cuDNN 9 & CTranslate2 Upgrade
 - Upgraded CTranslate2 from `4.4.0` to `ctranslate2>=4.5.0` and integrated `nvidia-cudnn-cu12`.
-- Injected dynamic preloading via `ctypes.CDLL(..., mode=ctypes.RTLD_GLOBAL)` in `app.py` and `main.py` to prevent missing cuDNN 8 (`libcudnn_ops_infer.so.8`) symbol errors in CUDA 12/13 environments.
+- Dynamic preloading via `ctypes.CDLL(..., mode=ctypes.RTLD_GLOBAL)` is injected in `app.py` and `main.py` to prevent missing cuDNN 8 (`libcudnn_ops_infer.so.8`) symbol errors in CUDA 12/13 environments.
 
 ### 6. S3 WhisperX Transcription Caching
-- Added automatic S3 caching for audio transcription results:
-  `cache_key = s3_key.rsplit(".", 1)[0] + "_transcript.json"`
-- If a video has been transcribed, repeat processing loads the cached transcript from Supabase Storage S3 directly, saving up to 3 minutes of compute and zeroing GPU quota consumption for transcription.
+- Transcription results are cached to S3: `cache_key = s3_key.rsplit(".", 1)[0] + "_transcript.json"`.
+- Re-processing an already-transcribed video loads the transcript from Supabase Storage S3 directly, saving up to 3 minutes of compute per reprocess.
 
-### 7. Pure-CPU TalkNet ASD & ZeroGPU Quota Elimination
-- Ported S3FD face detector and TalkNet models to CPU by dynamically binding tensors and weights with `torch.device("cpu")` and `map_location=device`.
-- Eliminates GPU quota consumption entirely (0 GPU seconds billed), allowing continuous processing without hitting daily ZeroGPU rate limits.
-- If no active speaker faces are detected (e.g., landscape scenes or B-roll), the pipeline gracefully falls back to a high-quality 9:16 blurred vertical video with Anton captions and watermark without aborting the job.
+### 7. Pure-CPU Pipeline: TalkNet ASD, S3FD Dependency, VideoWriter Fallback
+- The S3FD face detector and TalkNet ASD models run on CPU by binding tensors and weights with `torch.device("cpu")` and `map_location=device` — **0 GPU seconds billed**, so the free CPU Space is not subject to ZeroGPU daily limits.
+- `torchvision` was added to `requirements.txt` (required by `asd/model/faceDetector/s3fd/__init__.py`).
+- Automatic fallback from `ffmpegcv.VideoWriterNV` to `ffmpegcv.VideoWriter` when no NVENC hardware encoder is present (CPU encoding).
+- When no active speaker face is detected (e.g., landscape scenes or B-roll), the pipeline does not abort: it falls back to a high-quality 9:16 blurred vertical video with Anton captions and the `unartch` watermark. Because this fallback synthesizes safe, non-overlapping highlights instead of returning `[]` when inputs are unsafe (transcript ≥ 90 s), the HF backend's `tests/test_clip_validation.py` asserts the safety invariants of every returned moment; the canonical Modal copy of the module and its test remain untouched and upstream-faithful.
 
-### 8. CPU VideoWriter Fallback
-- Added automatic fallback from `ffmpegcv.VideoWriterNV` to `ffmpegcv.VideoWriter` when running without an attached NVENC hardware encoder.
+### 8. Standard Clip Duration Validation (30–60s)
+- Both backends enforce the standard **30–60s** short-form clip duration window (`min_duration = 30.0`, `max_duration = 60.0` in `clip_validation.py`), and the Gemini prompt instructs 30–60s clips.
+- The delivered clips measure **45.0s / 52.61s / 39.73s** (manifest `duration_seconds` = `end_time − start_time`; FFprobe container durations ≈45.05 / 52.68 / 39.80 s).
 
-### 9. TalkNet S3FD Face Detector Dependency
-- Added `torchvision` to `requirements.txt` to resolve `ModuleNotFoundError: No module named 'torchvision'` in `asd/model/faceDetector/s3fd/__init__.py`.
+### 9. LunarTech Logo Asset Restoration via `assets_embedded.py`
+- **Problem**: Hugging Face Spaces rejects binary `.png` files on push (`remote: Your push was rejected because it contains binary files`).
+- **Solution**: `assets_embedded.py` stores the 160 KB PNG as base64 text; at startup `ensure_watermark()` unpacks the exact binary to `/assets/lunartech-logo.png` and `assets/lunartech-logo.png`, used by the canonical Modal overlay variant (see #1).
 
-### 10. Standard Clip Duration Validation (30–60s)
-- Both backends enforce the standard **30–60s** short-form clip duration window: `min_duration = 30.0`, `max_duration = 60.0` in `clip_validation.py`, and the Gemini prompt instructs 30–60s clips. Generated reference clips are 33.5s / 52.6s / 57.4s.
+### 10. Automated Keep-Alive & Space Uptime
+- [`.github/workflows/keep-alive.yml`](.github/workflows/keep-alive.yml) pings `GET /health` on the Hugging Face Space every 6 hours (cron `0 */6 * * *`, authenticated with the HF read token) via free GitHub Actions.
+- Prevents container sleep/hibernation so the Space stays warm and serves webhook requests without cold-start latency.
 
-### 11. LunarTech Logo Asset Restoration via `assets_embedded.py`
-- **Problem**: Hugging Face Spaces Git rejected binary `.png` files (`remote: Your push was rejected because it contains binary files`).
-- **Solution**: Implemented `assets_embedded.py` to store the 160 KB PNG in base64 Python text. On startup, `ensure_watermark()` unpacks the exact binary image file to `/assets/lunartech-logo.png` and `assets/lunartech-logo.png`.
-- **Note**: The unpacked logo asset is used by the canonical Modal overlay variant. The HF render path burns the `unartch` drawtext watermark matching the production manifest specification: `drawtext=text='unartch':fontsize=28:fontcolor=white@0.8:x=w-tw-40:y=40`.
+### 11. Supabase 50 MB Object Cap → 6:00 Segment Seed (Audited)
+- **Audit finding**: the reference video `YRvf00NooN8` is **3984 s / 66:24** (verified with `yt-dlp --print "%(duration)s"`), but the pre-seeded `uploads/YRvf00NooN8/original.mp4` is a **6:00.03 segment** (verified with `ffprobe`: video 360.03 s / audio 360.00 s, 1280×720, ≈21.3 MB).
+- **Why**: Supabase Free caps the storage **Max File Size at 50 MB**; the full 66-minute stream (~240 MB at the segment's ≈500 kbps) would be rejected on upload. A bounded 6:00 seed stays under the cap and keeps CPU transcription within webhook run windows.
+- **Tool hardening**: `ingest_youtube.py` auto-trims any local download that would exceed 45 MB (safety margin under the 50 MB cap) before uploading, so re-seeding always produces a compliant object with an explicit console notice.
+- **Docs realigned**: `WRITE_UP.md` (§3 + Obstacle 11) and `DEPLOYMENT.md` (§11) state the true video length (66:24), the seeded segment (6:00.03), and the 50 MB constraint.
 
-### 12. Automated Keep-Alive & Space Uptime
-- Created [`.github/workflows/keep-alive.yml`](.github/workflows/keep-alive.yml) to automatically ping `GET /health` on the Hugging Face Space every 6 hours (cron `0 */6 * * *`, authenticated with the HF read token) via free GitHub Actions.
-- Prevents container sleep mode / hibernation, ensuring the Space is warm, healthy, and immediately ready to process webhook requests without cold-start latency.
+### 12. Hugging Face Backend: Read-Only Status Page (Non-Interactive)
+- The Space ships a **minimal read-only status page** (`GET /`) with the service title, an endpoint reference table, and a curl verification example — no interactive controls.
+- Webhook exposure is scoped to pure FastAPI endpoints: `GET /health` and `POST /process_video` (Bearer). All clipping requests are processed programmatically via Inngest Cloud or direct API invocations.
 
-### 13. Supabase 50 MB Object Cap → 6:00 Segment Seed (Audited)
-- **Audit finding**: The reference video `YRvf00NooN8` is **3984 s / 66:24** (verified via `yt-dlp --print "%(duration)s"` metadata), but the pre-seeded `uploads/YRvf00NooN8/original.mp4` is a **6:00.03 segment** (verified via `ffprobe`: video 360.03 s / audio 360.00 s, 1280×720, ≈21.3 MB).
-- **Why**: Supabase Free caps the storage **Max File Size at 50 MB**; the full 66-minute stream (~240 MB at the segment's ~500 kbps) would be rejected on upload. A bounded 6:00 seed stays under the cap and keeps CPU transcription within webhook run windows.
-- **Tool hardening**: `ingest_youtube.py` now auto-trims any local download that would exceed 45 MB (safety margin under the 50 MB cap) before uploading, so re-seeding always produces a compliant object with an explicit console notice.
-- **Docs realigned**: `WRITE_UP.md` (§3 + Obstacle 11) and `DEPLOYMENT.md` (§11) now state the true video length (66:24), the seeded segment (6:00.03), and the 50 MB constraint instead of the earlier inaccurate "30+ minutes, ~300 MB" claim.
+### 13. Private Hugging Face Space — Single HF-Read-Token Authentication
+- The Space (`y0sf-dark-phoenix-backend`) is **Private**: its endpoints are only reachable with a Hugging Face token (`Authorization: Bearer hf_...`) that holds read access to the Space repo.
+- Because the app's own webhook check reads the same `Authorization` header, the token model uses a **single credential** everywhere:
+  - **Vercel** `PROCESS_VIDEO_ENDPOINT_AUTH` = HF read token (the Inngest `process-video` function already sends it as Bearer — no frontend change).
+  - **Hugging Face** Space secret `AUTH_TOKEN` = same token, so the bearer passes both the private-Space edge and the in-app check.
+  - **GitHub Actions** secret `HF_TOKEN` = same token; the keep-alive workflow (#10) pings `GET /health` with the Authorization header.
+- Rotation and the Private toggle are documented in `README.md` §B + deploy steps, `DEPLOYMENT.md`, `WRITE_UP.md`, the Space `README.md`, and `.env.example` (create/rotate at <https://huggingface.co/settings/tokens>).
 
-### 14. Hugging Face Backend UX: Read-Only Status Page (Non-Interactive)
-- The Space ships a **minimal read-only status page** (`GET /`) displaying service title, endpoint reference table, and a curl verification example — with no interactive user controls.
-- Webhook exposure is scoped strictly to pure FastAPI endpoints: `GET /health` and `POST /process_video` (Bearer webhook). All clipping requests are processed programmatically via Inngest Cloud or direct API invocations.
-
-### 15. Private Hugging Face Space — HF-Token Authentication End-to-End
-- The Space (`y0sf-dark-phoenix-backend`) is set to **Private**: the Gradio/FastAPI endpoints are only reachable with a Hugging Face token (`Authorization: Bearer hf_...`) that has read access to the Space repo.
-- Because the app's own webhook check reads the same `Authorization` header, the token model was simplified to a **single credential** — the HF read token:
-  - **Vercel** `PROCESS_VIDEO_ENDPOINT_AUTH` = HF read token (the Inngest `process-video` function already sends it as the Bearer — no frontend code change).
-  - **Hugging Face** Space secret `AUTH_TOKEN` = same HF read token, so the bearer passes both the private-Space edge and the in-app check.
-  - **GitHub Actions** secret `HF_TOKEN` = same token; the keep-alive workflow now pings `GET /health` with the Authorization header.
-- Docs updated (`README.md` §B + deploy steps, `DEPLOYMENT.md` env table + Option A + regeneration snippet, `WRITE_UP.md` audit table, Space `README.md`, `.env.example`): all webhook/verification snippets now use `$HF_TOKEN`, and the deployment steps document the Private toggle.
-- Create/rotate the token at <https://huggingface.co/settings/tokens> (recommended: fine-grained token with Read access on `Y0sf/dark-phoenix-backend`).
-
-### 16. Single Manifest Location — Remove Bucket-Root Duplicate
-- The backend writes `clips_manifest.json` exclusively to the job folder in S3 (`s3://dark-phoenix/uploads/<id>/clips_manifest.json`), eliminating redundant bucket-root duplicate manifests.
-- Unaffected: the repo-root `clips_manifest.json` and production distribution copies.
-
-### 17. Production Manifest Schema Alignment
-- The backend's `clips_manifest.json` is now emitted in the **exact production schema**: nested `source_video` (`url` / `video_id` / `s3_source_key`) and `watermark` (`text` / `type` / `filter`) objects, plus `clips[]` with `clip_id`, `filename`, `start_time` / `end_time` (`HH:MM:SS.mmm`), `duration_seconds` (= end − start), `s3_key`, `watermark_present`, `captions_present`, `known_issues`.
-- The existing S3 object `uploads/YRvf00NooN8/clips_manifest.json` was overwritten with this exact content, so the **Supabase copy is byte-identical** to the repo-root deliverable and distribution copies.
-- `main.py` still writes the manifest to a single location (job folder only — see #16).
-
-### 18. Codebase & Manifest Cleanup
-- Removed the now-dead SigV4 presigned-URL generation block from the live backend (`main.py`): after the manifest schema alignment (#17) nothing consumed `presigned_playback_url` / `source_video_url` / `source_video_id`, so clip entries no longer carry unused fields. Manifest clip ids/names are now guaranteed `clip_01…clip_0N` (`clip_01…clip_03`) by construction.
-- DEPLOYMENT.md regeneration steps updated: the backend emits the production manifest directly to S3, and the repo-root and Supabase copies must stay byte-identical (verified via `Get-FileHash`).
-- Verified every module shipped in both backends is wired into the live build/runtime — `asd/` (LR-ASD TalkNet), `download_model_assets.py`, `assets_embedded.py`, `clip_validation.py` are all referenced and retained; no dead or unrelated files.
-- Aligned `tests/test_clip_validation.py` with the **3-clip guarantee fallback** added when the HF backend shipped (commit `1f7dd94`): the upstream test asserted `[]` for all-unsafe inputs, but since the fallback now synthesizes safe non-overlapping highlights (transcript ≥ 90 s) the test asserts the safety invariants of every returned moment instead. The canonical Modal copy of `clip_validation.py` and its test remain untouched and upstream-faithful.
-
-### 19. Frontend Enhancements & Server-Side YouTube Ingestion
-- **YouTube Ingestion UI (`src/components/dashboard-client.tsx`)**: Implemented a tabbed interface allowing users to submit YouTube URLs alongside direct file uploads, providing real-time URL validation and processing status updates.
-- **Server-Side Trigger Action (`src/actions/generation.ts`)**: Implemented the `processYouTubeVideo` server action that validates YouTube video URLs, creates the Prisma `UploadedFile` record, and dispatches the `process-video-events` background job to Inngest.
-- **Custom S3 Gateway Support (`src/actions/s3.ts`, `src/env.js`)**: Extended the frontend S3 client with `AWS_ENDPOINT_URL_S3` to enable seamless integration with Supabase Storage S3-compatible gateways.
-- **Evaluator Test Account & Graceful Auth (`src/app/dashboard/layout.tsx`)**: Configured database credit pre-seeding so evaluators test the full pipeline without Stripe billing, and added session recovery handling for stale cookies.
-
-
+### 14. Single Manifest Location & Production Manifest Schema (§5)
+- The backend writes `clips_manifest.json` to a **single location** — the job folder in S3 (`s3://dark-phoenix/uploads/<id>/clips_manifest.json`) — eliminating the bucket-root duplicate.
+- The manifest is emitted in the **exact production schema**: nested `source_video` (`url` / `video_id` / `s3_source_key`) and `watermark` (`text` / `type` / `filter`) objects, plus `clips[]` with `clip_id`, `filename`, `start_time` / `end_time` (`HH:MM:SS.mmm`), `duration_seconds` (= end − start), `s3_key`, `watermark_present`, `captions_present`, `known_issues`.
+- The S3 object `uploads/YRvf00NooN8/clips_manifest.json` was overwritten with this exact content, so the **Supabase, repo-root, and Drive copies are byte-identical** (1,407 B, SHA-256 `09CB3B96…`); a `.gitattributes` rule keeps the repo copy LF-normalized on every platform so hash checks agree on a fresh clone.
+- The now-dead SigV4 presigned-URL block was removed from the live backend: after the schema alignment nothing consumed `presigned_playback_url` / `source_video_url` / `source_video_id`, so clip entries no longer carry unused fields and clip ids/names are `clip_01…clip_03` by construction. The canonical Modal copy remains untouched.
